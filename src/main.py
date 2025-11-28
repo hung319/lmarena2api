@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager  # <--- Import mới
 
 import uvicorn
 import httpx
+from httpx_socks import AsyncProxyTransport
 from dotenv import load_dotenv
 from camoufox.async_api import AsyncCamoufox
 from fastapi import FastAPI, HTTPException, Depends, Request
@@ -105,7 +106,13 @@ async def upload_image_to_lmarena(image_data: bytes, mime_type: str, filename: s
         "Next-Action": "70cb393626e05a5f0ce7dcb46977c36c139fa85f91",
         "Referer": "https://lmarena.ai/?mode=direct",
     })
-    transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL) if PROXY_URL else None
+    transport = None
+    if PROXY_URL:
+        if PROXY_URL.startswith("socks"):
+            transport = AsyncProxyTransport.from_url(PROXY_URL)
+        else:
+            transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL)
+    
     async with httpx.AsyncClient(transport=transport, timeout=60.0) as client:
         try:
             resp = await client.post("https://lmarena.ai/?mode=direct", headers=request_headers, content=json.dumps([filename, mime_type]))
@@ -321,8 +328,13 @@ async def chat_completions(request: Request):
     }
 
     headers = get_request_headers()
-    transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL) if PROXY_URL else None
-
+    transport = None
+    if PROXY_URL:
+        if PROXY_URL.startswith("socks"):
+            transport = AsyncProxyTransport.from_url(PROXY_URL)
+        else:
+            transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL)
+            
     async def stream_generator():
         full_text = ""
         chunk_id = f"chatcmpl-{uuid.uuid4()}"

@@ -7,6 +7,7 @@ import secrets
 import base64
 import mimetypes
 import os
+from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timezone
 
@@ -21,18 +22,24 @@ from starlette.responses import StreamingResponse
 # ============================================================
 # CONFIGURATION & ENV
 # ============================================================
-load_dotenv()
+
+# Xác định đường dẫn file .env dựa trên vị trí file main.py
+# main.py đang ở /src, nên .env sẽ ở ../.env (thư mục cha)
+BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_PATH = BASE_DIR / ".env"
+MODELS_FILE = BASE_DIR / "models.json"  # Lưu models.json ra ngoài root luôn cho gọn
+
+# Load .env từ đường dẫn cụ thể
+load_dotenv(dotenv_path=ENV_PATH)
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 PORT = int(os.getenv("PORT", 8000))
-PROXY_URL = os.getenv("PROXY_URL")  # e.g., http://user:pass@host:port
+PROXY_URL = os.getenv("PROXY_URL")
 MASTER_API_KEY = os.getenv("API_KEY")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
 # Global State
-MODELS_FILE = "models.json"
-# Lưu trữ session chat: { "conversation_id": { ... } }
-# Lưu ý: Vì bỏ config.json, ta chỉ lưu in-memory. Restart server sẽ mất history cũ.
+# Lưu session chat: { "conversation_id": { ... } }
 chat_sessions: Dict[str, dict] = {}
 cf_clearance_token = ""
 
@@ -57,10 +64,12 @@ def uuid7():
 
 def get_models():
     try:
-        with open(MODELS_FILE, "r") as f:
-            return json.load(f)
+        if MODELS_FILE.exists():
+            with open(MODELS_FILE, "r") as f:
+                return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        pass
+    return []
 
 def save_models(models):
     with open(MODELS_FILE, "w") as f:
@@ -69,7 +78,6 @@ def save_models(models):
 def get_request_headers():
     if not AUTH_TOKEN:
         debug_print("❌ AUTH_TOKEN not set in .env")
-        # Vẫn trả về để code không crash ngay, nhưng request sẽ fail
     
     headers = {
         "Content-Type": "application/json",
@@ -84,7 +92,6 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 async def verify_api_key(key: str = Depends(api_key_header)):
     """Validates the Bearer token against MASTER_API_KEY in .env"""
     if not MASTER_API_KEY:
-        # Nếu không set key trong env, mặc định cho qua (dev mode) hoặc chặn tùy bạn
         return True
         
     if not key or not key.startswith("Bearer "):
@@ -111,7 +118,6 @@ async def upload_image_to_lmarena(image_data: bytes, mime_type: str, filename: s
         "Referer": "https://lmarena.ai/?mode=direct",
     })
 
-    # Setup Proxy for httpx
     transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL) if PROXY_URL else None
 
     async with httpx.AsyncClient(transport=transport, timeout=60.0) as client:
@@ -124,7 +130,6 @@ async def upload_image_to_lmarena(image_data: bytes, mime_type: str, filename: s
             )
             resp.raise_for_status()
             
-            # Parse Step 1
             upload_url = None
             key = None
             for line in resp.text.strip().split('\n'):
@@ -210,19 +215,6 @@ async def get_initial_data():
     print("🔄 Initializing: Fetching models and Cloudflare token...")
     
     try:
-        # Config Camoufox with Proxy if available
-        # Camoufox passes arguments to the underlying browser launch
-        launch_args = []
-        if PROXY_URL:
-            print(f"🌐 Using Proxy: {PROXY_URL}")
-            # Note: Camoufox/Playwright proxy format is usually dictionary
-            # But for simple usage, we pass it via browser context options if needed
-            # Here we try to pass it to the launcher if supported, or handle via args
-            pass 
-
-        # We use a specific proxy arg for camoufox wrapper if needed, 
-        # or rely on the fact that camoufox handles some anti-detect logic.
-        # Standard playwright proxy dict:
         proxy_config = {"server": PROXY_URL} if PROXY_URL else None
 
         async with AsyncCamoufox(headless=True, proxy=proxy_config) as browser:
@@ -231,7 +223,6 @@ async def get_initial_data():
             print("➡️  Navigating to lmarena.ai...")
             await page.goto("https://lmarena.ai/", wait_until="domcontentloaded")
 
-            # Wait for CF challenge
             try:
                 await page.wait_for_function(
                     "() => document.title.indexOf('Just a moment...') === -1", 
@@ -240,9 +231,8 @@ async def get_initial_data():
             except Exception:
                 print("⚠️  Cloudflare challenge timeout/fail.")
 
-            await asyncio.sleep(5) # Extra buffer
+            await asyncio.sleep(5)
 
-            # Get Cookies
             cookies = await page.context.cookies()
             cf_cookie = next((c for c in cookies if c["name"] == "cf_clearance"), None)
             
@@ -252,7 +242,6 @@ async def get_initial_data():
             else:
                 print("⚠️  cf_clearance cookie not found.")
 
-            # Get Models
             try:
                 body = await page.content()
                 match = re.search(r'{\\"initialModels\\":(\[.*?\]),\\"initialModel[A-Z]Id', body, re.DOTALL)
@@ -269,13 +258,13 @@ async def get_initial_data():
 
 async def periodic_refresh_task():
     while True:
-        await asyncio.sleep(1800) # 30 mins
+        await asyncio.sleep(1800)
         await get_initial_data()
 
 @app.on_event("startup")
 async def startup_event():
     if not AUTH_TOKEN:
-        print("⚠️  WARNING: AUTH_TOKEN is not set in .env! Requests will likely fail.")
+        print("⚠️  WARNING: AUTH_TOKEN is not set in .env!")
     if not MASTER_API_KEY:
         print("⚠️  WARNING: API_KEY is not set in .env! API is open to the public.")
         
@@ -299,7 +288,6 @@ async def health_check():
 @app.get("/api/v1/models", dependencies=[Depends(verify_api_key)])
 async def list_models():
     models = get_models()
-    # Filter text models with organizations
     data = []
     for m in models:
         caps = m.get('capabilities', {}).get('outputCapabilities', {})
@@ -326,7 +314,6 @@ async def chat_completions(request: Request):
     if not model_name or not messages:
         raise HTTPException(status_code=400, detail="Missing model or messages")
 
-    # Resolve Model ID
     models = get_models()
     target_model = next((m for m in models if m.get("publicName") == model_name), None)
     
@@ -336,7 +323,7 @@ async def chat_completions(request: Request):
     model_id = target_model.get("id")
     capabilities = target_model.get("capabilities", {})
 
-    # Prepare Prompt & Attachments
+    # Prepare Prompt
     system_prompt = ""
     sys_msgs = [m for m in messages if m.get("role") == "system"]
     if sys_msgs:
@@ -348,13 +335,11 @@ async def chat_completions(request: Request):
     if system_prompt:
         prompt = f"{system_prompt}\n\n{prompt}"
 
-    # Conversation Logic (Simple hashing for continuity)
+    # Conversation Hash
     import hashlib
     conv_key_hash = hashlib.sha256(f"{MASTER_API_KEY}_{model_name}_{str(messages[0])[:50]}".encode()).hexdigest()[:16]
-    
     session = chat_sessions.get(conv_key_hash)
     
-    # IDs setup
     if not session:
         session_id = str(uuid7())
         user_msg_id = str(uuid7())
@@ -384,7 +369,6 @@ async def chat_completions(request: Request):
     headers = get_request_headers()
     transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL) if PROXY_URL else None
 
-    # Handle Request
     async def stream_generator():
         full_text = ""
         chunk_id = f"chatcmpl-{uuid.uuid4()}"
@@ -437,7 +421,6 @@ async def chat_completions(request: Request):
                     
                     yield "data: [DONE]\n\n"
                     
-                    # Save session state
                     if is_new:
                         chat_sessions[conv_key_hash] = {"conversation_id": session_id}
 
@@ -448,7 +431,6 @@ async def chat_completions(request: Request):
     if stream:
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     else:
-        # Non-streaming implementation reused via collector
         response_content = ""
         finish_reason = "stop"
         async for chunk_str in stream_generator():

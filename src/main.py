@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager  # <--- Import mới
 
 import uvicorn
 import httpx
@@ -23,13 +24,10 @@ from starlette.responses import StreamingResponse
 # CONFIGURATION & ENV
 # ============================================================
 
-# Xác định đường dẫn file .env dựa trên vị trí file main.py
-# main.py đang ở /src, nên .env sẽ ở ../.env (thư mục cha)
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
-MODELS_FILE = BASE_DIR / "models.json"  # Lưu models.json ra ngoài root luôn cho gọn
+MODELS_FILE = BASE_DIR / "models.json"
 
-# Load .env từ đường dẫn cụ thể
 load_dotenv(dotenv_path=ENV_PATH)
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
@@ -38,13 +36,11 @@ PROXY_URL = os.getenv("PROXY_URL")
 MASTER_API_KEY = os.getenv("API_KEY")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
-# Global State
-# Lưu session chat: { "conversation_id": { ... } }
 chat_sessions: Dict[str, dict] = {}
 cf_clearance_token = ""
 
 # ============================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (Giữ nguyên)
 # ============================================================
 
 def debug_print(*args, **kwargs):
@@ -52,7 +48,6 @@ def debug_print(*args, **kwargs):
         print(*args, **kwargs)
 
 def uuid7():
-    """Generate UUIDv7 compliant with browser implementation."""
     timestamp_ms = int(time.time() * 1000)
     rand_a = secrets.randbits(12)
     rand_b = secrets.randbits(62)
@@ -86,29 +81,22 @@ def get_request_headers():
     }
     return headers
 
-# --- Auth Middleware ---
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def verify_api_key(key: str = Depends(api_key_header)):
-    """Validates the Bearer token against MASTER_API_KEY in .env"""
     if not MASTER_API_KEY:
         return True
-        
     if not key or not key.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    
     token = key.replace("Bearer ", "").strip()
     if token != MASTER_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return True
 
-# ============================================================
-# IMAGE HANDLING
-# ============================================================
-
+# ... (Hàm upload_image_to_lmarena và process_message_content giữ nguyên) ...
+# Để tiết kiệm không gian, tôi giả định bạn giữ nguyên các hàm xử lý ảnh ở đây
 async def upload_image_to_lmarena(image_data: bytes, mime_type: str, filename: str) -> Optional[tuple]:
     if not image_data: return None
-    
     debug_print(f"📤 Uploading image: {filename}")
     request_headers = get_request_headers()
     request_headers.update({
@@ -117,75 +105,41 @@ async def upload_image_to_lmarena(image_data: bytes, mime_type: str, filename: s
         "Next-Action": "70cb393626e05a5f0ce7dcb46977c36c139fa85f91",
         "Referer": "https://lmarena.ai/?mode=direct",
     })
-
     transport = httpx.AsyncHTTPTransport(proxy=PROXY_URL) if PROXY_URL else None
-
     async with httpx.AsyncClient(transport=transport, timeout=60.0) as client:
         try:
-            # Step 1: Request Upload URL
-            resp = await client.post(
-                "https://lmarena.ai/?mode=direct",
-                headers=request_headers,
-                content=json.dumps([filename, mime_type])
-            )
+            resp = await client.post("https://lmarena.ai/?mode=direct", headers=request_headers, content=json.dumps([filename, mime_type]))
             resp.raise_for_status()
-            
-            upload_url = None
-            key = None
+            upload_url, key = None, None
             for line in resp.text.strip().split('\n'):
                 if line.startswith('1:'):
                     data = json.loads(line[2:])
-                    upload_url = data['data']['uploadUrl']
-                    key = data['data']['key']
+                    upload_url, key = data['data']['uploadUrl'], data['data']['key']
                     break
-            
             if not upload_url: return None
-
-            # Step 2: Put to R2
-            await client.put(
-                upload_url,
-                content=image_data,
-                headers={"Content-Type": mime_type}
-            )
-
-            # Step 3: Get Signed URL
+            await client.put(upload_url, content=image_data, headers={"Content-Type": mime_type})
             request_headers["Next-Action"] = "6064c365792a3eaf40a60a874b327fe031ea6f22d7"
-            resp = await client.post(
-                "https://lmarena.ai/?mode=direct",
-                headers=request_headers,
-                content=json.dumps([key])
-            )
-            
+            resp = await client.post("https://lmarena.ai/?mode=direct", headers=request_headers, content=json.dumps([key]))
             download_url = None
             for line in resp.text.strip().split('\n'):
                 if line.startswith('1:'):
-                    data = json.loads(line[2:])
-                    download_url = data['data']['url']
+                    download_url = json.loads(line[2:])['data']['url']
                     break
-            
             return (key, download_url) if download_url else None
-
         except Exception as e:
             debug_print(f"❌ Image upload failed: {e}")
             return None
 
 async def process_message_content(content, model_capabilities: dict) -> tuple[str, List[dict]]:
     supports_images = model_capabilities.get('inputCapabilities', {}).get('image', False)
-    
-    if isinstance(content, str):
-        return content, []
-    
+    if isinstance(content, str): return content, []
     if isinstance(content, list):
-        text_parts = []
-        attachments = []
-        
+        text_parts, attachments = [], []
         for part in content:
             if isinstance(part, dict):
-                if part.get('type') == 'text':
-                    text_parts.append(part.get('text', ''))
+                if part.get('type') == 'text': text_parts.append(part.get('text', ''))
                 elif part.get('type') == 'image_url' and supports_images:
                     url = part.get('image_url', {}).get('url', '') if isinstance(part.get('image_url'), dict) else part.get('image_url')
-                    
                     if url.startswith('data:'):
                         try:
                             header, data = url.split(',', 1)
@@ -193,21 +147,15 @@ async def process_message_content(content, model_capabilities: dict) -> tuple[st
                             image_data = base64.b64decode(data)
                             ext = mimetypes.guess_extension(mime_type) or '.png'
                             filename = f"upload-{uuid.uuid4()}{ext}"
-                            
                             res = await upload_image_to_lmarena(image_data, mime_type, filename)
-                            if res:
-                                attachments.append({"name": res[0], "contentType": mime_type, "url": res[1]})
-                        except Exception as e:
-                            debug_print(f"Failed to process base64 image: {e}")
-
+                            if res: attachments.append({"name": res[0], "contentType": mime_type, "url": res[1]})
+                        except Exception as e: debug_print(f"Failed to process base64 image: {e}")
         return '\n'.join(text_parts).strip(), attachments
     return str(content), []
 
 # ============================================================
 # APP SETUP & BACKGROUND TASKS
 # ============================================================
-
-app = FastAPI(title="LMArena Headless Bridge")
 
 async def get_initial_data():
     """Fetch Cloudflare clearance token and model list."""
@@ -261,8 +209,10 @@ async def periodic_refresh_task():
         await asyncio.sleep(1800)
         await get_initial_data()
 
-@app.on_event("startup")
-async def startup_event():
+# --- LIFESPAN MANAGER (Thay thế on_event) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
     if not AUTH_TOKEN:
         print("⚠️  WARNING: AUTH_TOKEN is not set in .env!")
     if not MASTER_API_KEY:
@@ -270,12 +220,18 @@ async def startup_event():
         
     asyncio.create_task(get_initial_data())
     asyncio.create_task(periodic_refresh_task())
+    
+    yield
+    # Shutdown logic (nếu cần)
+    pass
+
+app = FastAPI(title="LMArena Headless Bridge", lifespan=lifespan)
 
 # ============================================================
-# API ENDPOINTS
+# API ENDPOINTS (Đã đổi path)
 # ============================================================
 
-@app.get("/api/v1/health")
+@app.get("/v1/health")  # Đã đổi từ /api/v1/health
 async def health_check():
     return {
         "status": "active",
@@ -285,7 +241,7 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
-@app.get("/api/v1/models", dependencies=[Depends(verify_api_key)])
+@app.get("/v1/models", dependencies=[Depends(verify_api_key)]) # Đã đổi từ /api/v1/models
 async def list_models():
     models = get_models()
     data = []
@@ -300,7 +256,7 @@ async def list_models():
             })
     return {"object": "list", "data": data}
 
-@app.post("/api/v1/chat/completions", dependencies=[Depends(verify_api_key)])
+@app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)]) # Đã đổi từ /api/v1/chat/completions
 async def chat_completions(request: Request):
     try:
         body = await request.json()
@@ -323,7 +279,6 @@ async def chat_completions(request: Request):
     model_id = target_model.get("id")
     capabilities = target_model.get("capabilities", {})
 
-    # Prepare Prompt
     system_prompt = ""
     sys_msgs = [m for m in messages if m.get("role") == "system"]
     if sys_msgs:
@@ -335,7 +290,6 @@ async def chat_completions(request: Request):
     if system_prompt:
         prompt = f"{system_prompt}\n\n{prompt}"
 
-    # Conversation Hash
     import hashlib
     conv_key_hash = hashlib.sha256(f"{MASTER_API_KEY}_{model_name}_{str(messages[0])[:50]}".encode()).hexdigest()[:16]
     session = chat_sessions.get(conv_key_hash)
@@ -376,7 +330,6 @@ async def chat_completions(request: Request):
         async with httpx.AsyncClient(transport=transport, timeout=120.0) as client:
             try:
                 async with client.stream('POST', url, json=payload, headers=headers) as resp:
-                    # --- PHẦN SỬA LỖI (Indent level: 20 spaces) ---
                     if resp.status_code != 200:
                         err_txt = await resp.read()
                         error_payload = {
@@ -387,7 +340,6 @@ async def chat_completions(request: Request):
                         }
                         yield f"data: {json.dumps(error_payload)}\n\n"
                         return
-                    # ----------------------------------------------
 
                     async for line in resp.aiter_lines():
                         line = line.strip()
@@ -434,7 +386,6 @@ async def chat_completions(request: Request):
 
             except Exception as e:
                 debug_print(f"Stream Error: {e}")
-                # Tạo error payload rõ ràng để tránh SyntaxError
                 err_json = {"error": {"message": str(e)}}
                 yield f"data: {json.dumps(err_json)}\n\n"
 

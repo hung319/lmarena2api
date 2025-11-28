@@ -376,20 +376,19 @@ async def chat_completions(request: Request):
         async with httpx.AsyncClient(transport=transport, timeout=120.0) as client:
             try:
                 async with client.stream('POST', url, json=payload, headers=headers) as resp:
-                    # ✅ Code mới (Dễ đọc và đúng cú pháp)
+                    # --- PHẦN SỬA LỖI (Indent level: 20 spaces) ---
                     if resp.status_code != 200:
-                     err_txt = await resp.read()
-                     # Tạo object lỗi rõ ràng
-                     error_payload = {
-                      "error": {
-                          "message": f"Upstream Error: {resp.status_code}",
-                          "details": str(err_txt)
+                        err_txt = await resp.read()
+                        error_payload = {
+                            "error": {
+                                "message": f"Upstream Error: {resp.status_code}",
+                                "details": str(err_txt)
+                            }
                         }
-                      }
-                      # Serialize rồi mới yield
-                      yield f"data: {json.dumps(error_payload)}\n\n"
-                      return
-    
+                        yield f"data: {json.dumps(error_payload)}\n\n"
+                        return
+                    # ----------------------------------------------
+
                     async for line in resp.aiter_lines():
                         line = line.strip()
                         if not line: continue
@@ -435,7 +434,9 @@ async def chat_completions(request: Request):
 
             except Exception as e:
                 debug_print(f"Stream Error: {e}")
-                yield f"data: {json.dumps({'error': {'message': str(e)}})}\n\n"
+                # Tạo error payload rõ ràng để tránh SyntaxError
+                err_json = {"error": {"message": str(e)}}
+                yield f"data: {json.dumps(err_json)}\n\n"
 
     if stream:
         return StreamingResponse(stream_generator(), media_type="text/event-stream")

@@ -376,11 +376,20 @@ async def chat_completions(request: Request):
         async with httpx.AsyncClient(transport=transport, timeout=120.0) as client:
             try:
                 async with client.stream('POST', url, json=payload, headers=headers) as resp:
+                    # ✅ Code mới (Dễ đọc và đúng cú pháp)
                     if resp.status_code != 200:
-                        err_txt = await resp.read()
-                        yield f"data: {json.dumps({'error': {'message': f'Upstream Error: {resp.status_code}', 'details': str(err_txt)}}})}\n\n"
-                        return
-
+                    err_txt = await resp.read()
+                    # Tạo object lỗi rõ ràng
+                    error_payload = {
+                     "error": {
+                         "message": f"Upstream Error: {resp.status_code}",
+                         "details": str(err_txt)
+                       }
+                     }
+                     # Serialize rồi mới yield
+                     yield f"data: {json.dumps(error_payload)}\n\n"
+                     return
+    
                     async for line in resp.aiter_lines():
                         line = line.strip()
                         if not line: continue

@@ -19,7 +19,6 @@ RUN uv run python -m camoufox fetch
 
 # 6. Copy source code và file cấu hình
 COPY src ./src
-COPY .env .
 # Copy models.json theo yêu cầu
 COPY models.json .
 

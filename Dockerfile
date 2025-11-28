@@ -13,10 +13,6 @@ COPY pyproject.toml uv.lock ./
 # 4. Cài đặt Python dependencies
 RUN uv sync --frozen --no-cache
 
-# 5. Fetch Camoufox Browser (Quan trọng)
-# Tải binary browser ngay lúc build để không phải tải mỗi lần chạy container
-RUN uv run python -m camoufox fetch
-
 # 6. Copy source code và file cấu hình
 COPY src ./src
 # Copy models.json theo yêu cầu

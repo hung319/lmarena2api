@@ -223,6 +223,13 @@ async def get_initial_data():
     try:
         proxy_config = {"server": PROXY_URL} if PROXY_URL else None
 
+        # Thử dùng cached models nếu tồn tại
+        existing_models = get_models()
+        if existing_models:
+            print(f"✅ Using {len(existing_models)} cached models.")
+        else:
+            print("⚠️  No cached models found.")
+
         async with AsyncCamoufox(headless=True, proxy=proxy_config) as browser:
             page = await browser.new_page()
 
@@ -265,10 +272,12 @@ async def get_initial_data():
 
     except Exception as e:
         print(f"❌ Browser automation error: {e}")
+        print("💡 Continuing with cached models, if any...")
 
 
 async def periodic_refresh_task():
     while True:
+        # Chờ 30 phút trước khi refresh
         await asyncio.sleep(1800)
         await get_initial_data()
 
@@ -282,7 +291,12 @@ async def lifespan(app: FastAPI):
     if not MASTER_API_KEY:
         print("⚠️  WARNING: API_KEY is not set in .env! API is open to the public.")
 
-    asyncio.create_task(get_initial_data())
+    # Chỉ chạy get_initial_data nếu có AUTH_TOKEN
+    if AUTH_TOKEN:
+        asyncio.create_task(get_initial_data())
+    else:
+        print("💡 Skipping browser initialization (no AUTH_TOKEN set)")
+
     asyncio.create_task(periodic_refresh_task())
 
     yield
@@ -290,7 +304,7 @@ async def lifespan(app: FastAPI):
     pass
 
 
-app = FastAPI(title="LMArena Headless Bridge", lifespan=lifespan)
+app = FastAPI(title="Arena Headless Bridge", lifespan=lifespan)
 
 # ============================================================
 # API ENDPOINTS (Đã đổi path)
@@ -304,6 +318,7 @@ async def health_check():
         "proxy": bool(PROXY_URL),
         "auth_token_set": bool(AUTH_TOKEN),
         "cf_token_acquired": bool(cf_clearance_token),
+        "models_cached": len(get_models()),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

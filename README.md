@@ -1,8 +1,8 @@
-# LM Arena Bridge
+# Arena Bridge
 
 ## Description
 
-A bridge to interact with LM Arena. This project provides an OpenAI compatible API endpoint that interacts with models on LM Arena, including experimental support for stealth models.
+A bridge to interact with Arena. This project provides an OpenAI compatible API endpoint that interacts with models on Arena, including experimental support for stealth models.
 
 ## Getting Started
 
@@ -29,13 +29,13 @@ A bridge to interact with LM Arena. This project provides an OpenAI compatible A
 
 ### 1. Get your Authentication Token
 
-To use the LM Arena Bridge, you need to get your authentication token from the LM Arena website.
+To use the Arena Bridge, you need to get your authentication token from the Arena website.
 
-1.  Open your web browser and go to the LM Arena website.
+1.  Open your web browser and go to the Arena website.
 2.  Send a message in the chat to any model.
 3.  After the model responds, open the developer tools in your browser (usually by pressing F12).
 4.  Go to the "Application" or "Storage" tab (the name may vary depending on your browser).
-5.  In the "Cookies" section, find the cookies for the LM Arena site.
+5.  In the "Cookies" section, find the cookies for the Arena site.
 6.  Look for a cookie named `arena-auth-prod-v1` and copy its value. This is your authentication token.
 
 ### 2. Configure the Application
@@ -68,7 +68,7 @@ You can use this project as a backend for [OpenWebUI](https://openwebui.com/), a
 ### Instructions
 
 1.  **Run the LM Arena Bridge:**
-    Make sure the `lmarenabridge` application is running.
+    Make sure the `arenabridge` application is running.
     ```bash
     python src/main.py
     ```
@@ -84,15 +84,15 @@ You can use this project as a backend for [OpenWebUI](https://openwebui.com/), a
     - Modify the **OpenAI connection**.
 
 4.  **Set the API Base URL:**
-    - In the OpenAI connection settings, set the **API Base URL** to the URL of the LM Arena Bridge API, which is `http://localhost:8000/api/v1`.
+    - In the OpenAI connection settings, set the **API Base URL** to the URL of the Arena Bridge API, which is `http://localhost:8000/api/v1`.
     - You can leave the **API Key** field empty or enter any value. It is not used for authentication by the bridge itself.
 
 5.  **Start Chatting:**
-    You should now be able to select and chat with the models available on LM Arena through OpenWebUI.
+    You should now be able to select and chat with the models available on Arena through OpenWebUI.
 
 ## Image Support
 
-LMArenaBridge supports sending images to vision-capable models on LMArena. When you send a message with images to a model that supports image input, the images are automatically uploaded to LMArena's R2 storage and included in the request.
+ArenaBridge supports sending images to vision-capable models on Arena. When you send a message with images to a model that supports image input, the images are automatically uploaded to Arena's R2 storage and included in the request.
 
 ## Production Deployment
 
@@ -144,19 +144,19 @@ Monitor these key metrics in production:
 
 ### Common Issues
 
-**"LMArena API error: An error occurred"**
+**"Arena API error: An error occurred"**
 - Check that your `arena-auth-prod-v1` token is valid
 - Verify `cf_clearance` cookie is not expired
-- Ensure model is available on LMArena
+- Ensure model is available on Arena
 
 **Image Upload Failures**
 - Verify image is under 10MB
 - Check MIME type is supported (image/png, image/jpeg, etc.)
-- Ensure LMArena R2 storage is accessible
+- Ensure Arena R2 storage is accessible
 
 **Timeout Errors**
 - Increase timeout in `src/main.py` if needed (default 120s)
-- Check network connectivity to LMArena
+- Check network connectivity to Arena
 - Consider using streaming mode for long responses
 
 ### Reverse Proxy Example (Nginx)
@@ -185,7 +185,7 @@ server {
 
 ### Running as a Service (systemd)
 
-Create `/etc/systemd/system/lmarenabridge.service`:
+Create `/etc/systemd/system/arenabridge.service`:
 
 ```ini
 [Unit]
@@ -195,7 +195,7 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/path/to/lmarenabridge
+WorkingDirectory=/path/to/arenabridge
 Environment="PATH=/path/to/venv/bin"
 ExecStart=/path/to/venv/bin/python src/main.py
 Restart=always
@@ -207,7 +207,7 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable lmarenabridge
-sudo systemctl start lmarenabridge
-sudo systemctl status lmarenabridge
+sudo systemctl enable arenabridge
+sudo systemctl start arenabridge
+sudo systemctl status arenabridge
 ```

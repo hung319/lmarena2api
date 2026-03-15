@@ -1374,7 +1374,7 @@
   },
   {
     "id": "c15b93ed-e87b-467f-8f9f-d830fd7aa54d",
-    "publicName": "lmarena-internal-test-only",
+    "publicName": "arena-internal-test-only",
     "capabilities": {
       "inputCapabilities": {
         "text": true

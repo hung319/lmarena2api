@@ -20,6 +20,7 @@ from camoufox.async_api import AsyncCamoufox
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import APIKeyHeader
 from starlette.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 # ============================================================
 # CONFIGURATION & ENV
@@ -305,6 +306,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Arena Headless Bridge", lifespan=lifespan)
+
+# Thêm CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "*"
+    ],  # Cho phép tất cả origins - nên cấu hình cụ thể trong production
+    allow_credentials=True,
+    allow_methods=["*"],  # Cho phép tất cả phương thức
+    allow_headers=["*"],  # Cho phép tất cả headers
+    # Thêm tùy chọn để hỗ trợ credentials nếu cần
+    # expose_headers=["Access-Control-Allow-Origin"]
+)
 
 # ============================================================
 # API ENDPOINTS (Đã đổi path)

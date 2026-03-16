@@ -7,48 +7,53 @@ from openai import OpenAI
 import sys
 
 # Configuration
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = "http://localhost:8000/v1"
 API_KEY = "sk-lmab-4d4c13f6-7846-4f94-a261-f59911838196"  # Replace with your API key
+
 
 def list_available_models(client):
     """List all available models"""
     try:
         models = client.models.list()
-        return [model.id for model in models.data]
+        if hasattr(models, "data"):
+            return [model.id for model in models.data]
+        else:
+            # Handle case where response might be different
+            return []
     except Exception as e:
         print(f"Error fetching models: {e}")
         return []
 
+
 def chat_session(client, model_name):
     """Run an interactive chat session"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🤖 Chat Session with {model_name}")
-    print(f"{'='*60}")
-    
+    print(f"{'=' * 60}")
+
     # Ask for system prompt
     print("\n📋 System Prompt (optional):")
     print("Set the behavior/personality of the assistant.")
     print("Press Enter to skip, or type your system prompt below:")
     system_prompt = input("System: ").strip()
-    
+
     conversation_history = []
-    
+
     # Add system message if provided
     if system_prompt:
-        conversation_history.append({
-            "role": "system",
-            "content": system_prompt
-        })
-        print(f"✅ System prompt set: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}")
-    
-    print(f"\n{'='*60}")
+        conversation_history.append({"role": "system", "content": system_prompt})
+        print(
+            f"✅ System prompt set: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
+        )
+
+    print(f"\n{'=' * 60}")
     print("Type your messages below. Commands:")
     print("  - 'exit' or 'quit' to end the session")
     print("  - 'clear' to start a new conversation")
     print("  - 'system' to view/change system prompt")
     print("  - 'models' to switch models")
-    print(f"{'='*60}\n")
-    
+    print(f"{'=' * 60}\n")
+
     while True:
         # Get user input
         try:
@@ -56,28 +61,28 @@ def chat_session(client, model_name):
         except (EOFError, KeyboardInterrupt):
             print("\n\n👋 Goodbye!")
             break
-        
+
         # Handle commands FIRST before adding to history
         if not user_input:
             continue
-            
-        if user_input.lower() in ['exit', 'quit']:
+
+        if user_input.lower() in ["exit", "quit"]:
             print("\n👋 Goodbye!")
             break
-        
-        if user_input.lower() == 'clear':
+
+        if user_input.lower() == "clear":
             # Keep system prompt if it exists
             system_msg = None
             if conversation_history and conversation_history[0]["role"] == "system":
                 system_msg = conversation_history[0]
-            
+
             conversation_history = []
             if system_msg:
                 conversation_history.append(system_msg)
             print("\n🔄 Conversation cleared!\n")
             continue
-        
-        if user_input.lower() == 'system':
+
+        if user_input.lower() == "system":
             # Show or update system prompt
             current_system = None
             if conversation_history and conversation_history[0]["role"] == "system":
@@ -85,83 +90,87 @@ def chat_session(client, model_name):
                 print(f"\n📋 Current system prompt:\n{current_system}\n")
             else:
                 print("\n📋 No system prompt set.\n")
-            
+
             print("Enter new system prompt (or press Enter to keep current):")
             new_system = input("System: ").strip()
-            
+
             if new_system:
                 # Remove old system message if exists
                 if conversation_history and conversation_history[0]["role"] == "system":
                     conversation_history.pop(0)
-                
+
                 # Add new system message at the start
-                conversation_history.insert(0, {
-                    "role": "system",
-                    "content": new_system
-                })
-                print(f"✅ System prompt updated: {new_system[:50]}{'...' if len(new_system) > 50 else ''}\n")
+                conversation_history.insert(
+                    0, {"role": "system", "content": new_system}
+                )
+                print(
+                    f"✅ System prompt updated: {new_system[:50]}{'...' if len(new_system) > 50 else ''}\n"
+                )
             else:
                 print("System prompt unchanged.\n")
             continue
-        
-        if user_input.lower() == 'models':
-            return 'switch_model'
-        
+
+        if user_input.lower() == "models":
+            return "switch_model"
+
         # Add user message to history (only if not a command)
-        conversation_history.append({
-            "role": "user",
-            "content": user_input
-        })
-        
+        conversation_history.append({"role": "user", "content": user_input})
+
         # Get response from API with streaming
         try:
             print("Assistant: ", end="", flush=True)
-            
-            stream = client.chat.completions.create(
+
+            # Create the stream with the API (OpenAI v2.x returns a sync iterator)
+            response = client.chat.completions.create(
                 model=model_name,
                 messages=conversation_history,
-                stream=True  # Enable streaming
+                stream=True,  # Enable streaming
             )
-            
+
             assistant_message = ""
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    content = chunk.choices[0].delta.content
-                    print(content, end="", flush=True)
-                    assistant_message += content
-            
+
+            # Handle the stream response properly for OpenAI v2.x sync iterator
+            for chunk in response:
+                # Check if chunk has choices and delta content
+                if chunk.choices:
+                    choice = chunk.choices[0]
+                    if choice.delta and choice.delta.content is not None:
+                        content = choice.delta.content
+                        print(content, end="", flush=True)
+                        assistant_message += content
+
             print()  # New line after streaming completes
-            
+
             # Add assistant response to history
-            conversation_history.append({
-                "role": "assistant",
-                "content": assistant_message
-            })
-            
+            conversation_history.append(
+                {"role": "assistant", "content": assistant_message}
+            )
+
             print()  # Empty line for readability
-            
+
         except Exception as e:
             print(f"\n❌ Error: {e}\n")
             # Remove the failed user message from history
             conversation_history.pop()
 
+
 def select_model(client, models):
     """Let user select a model"""
     print("\n📋 Available Models:")
     print("-" * 60)
-    
+
     for i, model in enumerate(models, 1):
         print(f"{i}. {model}")
-    
+
     print("-" * 60)
-    
+
     while True:
         try:
             choice = input("\nSelect a model number (or 'q' to quit): ").strip()
-            
-            if choice.lower() == 'q':
+
+            if choice.lower() == "q":
                 return None
-            
+
             choice_num = int(choice)
             if 1 <= choice_num <= len(models):
                 return models[choice_num - 1]
@@ -173,45 +182,45 @@ def select_model(client, models):
             print("\n")
             return None
 
+
 def main():
     """Main function"""
     print("=" * 60)
     print("🚀 LMArena Bridge - Interactive Chat")
     print("=" * 60)
-    
+
     # Initialize OpenAI client
     try:
-        client = OpenAI(
-            api_key=API_KEY,
-            base_url=BASE_URL
-        )
+        client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
         print("✅ Connected to LMArena Bridge")
     except Exception as e:
         print(f"❌ Failed to initialize client: {e}")
         return
-    
+
     # Get available models
     print("📡 Fetching available models...")
     models = list_available_models(client)
-    
+
     if not models:
         print("❌ No models available. Please check your API key and server status.")
         return
-    
+
     print(f"✅ Found {len(models)} models")
-    
+
     # Main loop
     while True:
         selected_model = select_model(client, models)
-        
+
         if selected_model is None:
             print("\n👋 Goodbye!")
             break
-        
+
+        # Run the sync chat_session function
         result = chat_session(client, selected_model)
-        
-        if result != 'switch_model':
+
+        if result != "switch_model":
             break
+
 
 if __name__ == "__main__":
     try:

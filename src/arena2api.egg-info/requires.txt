@@ -1,0 +1,8 @@
+camoufox>=0.4.11
+fastapi>=0.122.0
+httpx>=0.28.1
+playwright>=1.56.0
+python-dotenv>=1.2.1
+uvicorn>=0.38.0
+httpx-socks
+openai>=1.0.0

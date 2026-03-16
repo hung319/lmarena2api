@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/main.py
+src/arena2api.egg-info/PKG-INFO
+src/arena2api.egg-info/SOURCES.txt
+src/arena2api.egg-info/dependency_links.txt
+src/arena2api.egg-info/requires.txt
+src/arena2api.egg-info/top_level.txt
